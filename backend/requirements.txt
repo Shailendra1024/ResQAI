@@ -4,3 +4,7 @@ httpx
 pydantic-settings
 email-validator
 PyJWT
+
+SQLAlchemy>=2.0
+psycopg[binary]>=3.2
+python-dotenv>=1.0

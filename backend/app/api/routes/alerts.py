@@ -1,29 +1,73 @@
-from datetime import datetime, timezone
+
 from uuid import uuid4
-from fastapi import APIRouter, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.schemas import AlertCreate
-from app.store import alerts
+from app.core.dependencies import get_db
+from app.db.models import Alert
+
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
+
+def serialize_alert(item: Alert) -> dict:
+    return {
+        "id": item.id,
+        "title": item.title,
+        "description": item.description,
+        "severity": item.severity,
+        "location": item.location,
+        "latitude": item.latitude,
+        "longitude": item.longitude,
+        "created_at": item.created_at.isoformat(),
+        "source": item.source,
+    }
+
+
 @router.post("/", status_code=201)
-def create_alert(body: AlertCreate):
-    aid = f"alert_{uuid4().hex[:12]}"
-    item = {"id": aid, **body.model_dump(),
-            "created_at": datetime.now(timezone.utc).isoformat(), "source": "manual"}
-    alerts[aid] = item
-    return item
+def create_alert(body: AlertCreate, db: Session = Depends(get_db)):
+    item = Alert(
+        id=f"alert_{uuid4().hex[:12]}",
+        **body.model_dump(),
+        source="manual",
+    )
+
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+
+    return serialize_alert(item)
+
 
 @router.get("/")
-def list_alerts(severity: str | None = None):
-    items = list(alerts.values())
+def list_alerts(
+    severity: str | None = None,
+    db: Session = Depends(get_db),
+):
+    query = select(Alert)
+
     if severity:
-        items = [x for x in items if x["severity"] == severity.lower()]
-    items.sort(key=lambda x: x["created_at"], reverse=True)
-    return {"count": len(items), "items": items}
+        query = query.where(Alert.severity == severity.lower())
+
+    query = query.order_by(Alert.created_at.desc())
+    items = db.scalars(query).all()
+
+    return {
+        "count": len(items),
+        "items": [serialize_alert(item) for item in items],
+    }
+
 
 @router.get("/{alert_id}")
-def get_alert(alert_id: str):
-    item = alerts.get(alert_id)
+def get_alert(
+    alert_id: str,
+    db: Session = Depends(get_db),
+):
+    item = db.get(Alert, alert_id)
+
     if not item:
         raise HTTPException(status_code=404, detail="Alert not found")
-    return item
+
+    return serialize_alert(item)

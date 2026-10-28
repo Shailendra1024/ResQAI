@@ -1,39 +1,118 @@
+
 from datetime import datetime, timezone
 from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.schemas import SOSCreate, SOSStageUpdate
-from app.store import sos_requests
-from app.core.dependencies import current_user
+from app.core.dependencies import current_user, get_db
+from app.db.models import SOSRequest
+
 router = APIRouter(prefix="/sos", tags=["SOS"])
 
+
+def serialize_sos(item: SOSRequest) -> dict:
+    return {
+        "id": item.id,
+        "user_id": item.user_id,
+        "latitude": item.latitude,
+        "longitude": item.longitude,
+        "message": item.message,
+        "stage": item.stage,
+        "created_at": item.created_at.isoformat(),
+        "responder_name": item.responder_name,
+        "responder_eta": item.responder_eta,
+        "dispatch_status": item.dispatch_status,
+        "updated_at": (
+            item.updated_at.isoformat() if item.updated_at else None
+        ),
+    }
+
+
 @router.post("/", status_code=201)
-def create_sos(body: SOSCreate, user=Depends(current_user)):
-    sid = f"sos_{uuid4().hex[:12]}"
-    item = {"id": sid, "user_id": user["id"], "latitude": body.latitude,
-            "longitude": body.longitude, "message": body.message, "stage": "SENT",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "responder_name": None, "responder_eta": None,
-            "dispatch_status": "NOT_CONNECTED_TO_DISPATCH_SERVICE"}
-    sos_requests[sid] = item
-    return item
+def create_sos(
+    body: SOSCreate,
+    user=Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    item = SOSRequest(
+        id=f"sos_{uuid4().hex[:12]}",
+        user_id=user["id"],
+        latitude=body.latitude,
+        longitude=body.longitude,
+        message=body.message,
+        stage="SENT",
+        dispatch_status="NOT_CONNECTED_TO_DISPATCH_SERVICE",
+    )
+
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return serialize_sos(item)
+
 
 @router.get("/")
-def list_my_sos(user=Depends(current_user)):
-    items = [x for x in sos_requests.values() if x["user_id"] == user["id"]]
-    return {"count": len(items), "items": items}
+def list_my_sos(
+    user=Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    items = db.scalars(
+        select(SOSRequest)
+        .where(SOSRequest.user_id == user["id"])
+        .order_by(SOSRequest.created_at.desc())
+    ).all()
+
+    return {
+        "count": len(items),
+        "items": [serialize_sos(item) for item in items],
+    }
+
 
 @router.get("/{sos_id}")
-def get_sos(sos_id: str, user=Depends(current_user)):
-    item = sos_requests.get(sos_id)
-    if not item or item["user_id"] != user["id"]:
-        raise HTTPException(status_code=404, detail="SOS request not found")
-    return item
+def get_sos(
+    sos_id: str,
+    user=Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    item = db.scalar(
+        select(SOSRequest).where(
+            SOSRequest.id == sos_id,
+            SOSRequest.user_id == user["id"],
+        )
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=404, detail="SOS request not found"
+        )
+
+    return serialize_sos(item)
+
 
 @router.patch("/{sos_id}/stage")
-def update_sos_stage(sos_id: str, body: SOSStageUpdate, user=Depends(current_user)):
-    item = sos_requests.get(sos_id)
-    if not item or item["user_id"] != user["id"]:
-        raise HTTPException(status_code=404, detail="SOS request not found")
-    item["stage"] = body.stage
-    item["updated_at"] = datetime.now(timezone.utc).isoformat()
-    return item
+def update_sos_stage(
+    sos_id: str,
+    body: SOSStageUpdate,
+    user=Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    item = db.scalar(
+        select(SOSRequest).where(
+            SOSRequest.id == sos_id,
+            SOSRequest.user_id == user["id"],
+        )
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=404, detail="SOS request not found"
+        )
+
+    item.stage = body.stage
+    item.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(item)
+    return serialize_sos(item)
