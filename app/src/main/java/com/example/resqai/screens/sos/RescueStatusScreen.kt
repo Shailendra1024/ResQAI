@@ -1,5 +1,6 @@
 package com.example.resqai.screens.sos
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,11 +11,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -26,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -33,12 +43,14 @@ import com.example.resqai.components.ResQTopAppBar
 import com.example.resqai.model.SOSStage
 import com.example.resqai.ui.theme.ResQAITheme
 import com.example.resqai.viewmodel.SOSViewModel
-import androidx.compose.material3.Icon
 
 /**
- * Rescue Status screen — animated vertical timeline showing SOS progress:
- * Sent → Responder Assigned → En Route → Rescue Completed.
- * Auto-advances via [SOSViewModel.simulateRescueProgress] for demo purposes.
+ * Request Status screen — animated vertical timeline:
+ * Sent → Responder Assigned → En Route → Completed.
+ *
+ * IMPORTANT: the stages after "Sent" are SIMULATED by the app for demonstration
+ * ([SOSViewModel.simulateRescueProgress]). No real responder is involved, and the
+ * screen says so.
  */
 @Composable
 fun RescueStatusScreen(
@@ -46,6 +58,7 @@ fun RescueStatusScreen(
     onBackClick: () -> Unit
 ) {
     val currentStage by viewModel.currentStage.collectAsState()
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) {
         viewModel.simulateRescueProgress()
@@ -54,7 +67,7 @@ fun RescueStatusScreen(
     Scaffold(
         topBar = {
             ResQTopAppBar(
-                title = "Rescue Status",
+                title = "Request Status (Demo)",
                 showBackButton = true,
                 onBackClick = onBackClick
             )
@@ -64,16 +77,76 @@ fun RescueStatusScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp)
         ) {
-            val steps = buildTimelineSteps(currentStage)
-            steps.forEachIndexed { index, step ->
-                TimelineRow(
-                    label = step.first,
-                    isCompleted = step.second,
-                    isCurrent = step.third,
-                    isLast = index == steps.lastIndex
+            DemoNoticeCard(onCall112 = { dialNumber(context, "112") })
+
+            Column(modifier = Modifier.padding(top = 24.dp)) {
+                val steps = buildTimelineSteps(currentStage)
+                steps.forEachIndexed { index, step ->
+                    TimelineRow(
+                        label = step.first,
+                        isCompleted = step.second,
+                        isCurrent = step.third,
+                        isLast = index == steps.lastIndex
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Makes it clear that the progress below is a simulation, not a real rescue. */
+@Composable
+private fun DemoNoticeCard(onCall112: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(20.dp)
                 )
+                Text(
+                    text = "Demo simulation",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+            Text(
+                text = "The stages below are simulated by the app. No real responder has " +
+                        "been assigned and no help is on the way. In a real emergency, " +
+                        "call 112.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            Button(
+                onClick = onCall112,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Phone,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(text = "Call 112", modifier = Modifier.padding(start = 8.dp))
             }
         }
     }
@@ -87,11 +160,20 @@ private fun buildTimelineSteps(currentStage: SOSStage): List<Triple<String, Bool
         SOSStage.RESPONDER_EN_ROUTE,
         SOSStage.RESCUE_COMPLETED
     )
-    val labels = listOf("SOS Sent", "Responder Assigned", "Responder En Route", "Rescue Completed")
+    val labels = listOf(
+        "SOS Recorded",
+        "Responder Assigned (simulated)",
+        "Responder En Route (simulated)",
+        "Completed (simulated)"
+    )
     val currentIndex = order.indexOf(currentStage).coerceAtLeast(0)
 
     return labels.mapIndexed { index, label ->
-        Triple(label, index < currentIndex || (index == currentIndex && currentStage == SOSStage.RESCUE_COMPLETED), index == currentIndex && currentStage != SOSStage.RESCUE_COMPLETED)
+        Triple(
+            label,
+            index < currentIndex || (index == currentIndex && currentStage == SOSStage.RESCUE_COMPLETED),
+            index == currentIndex && currentStage != SOSStage.RESCUE_COMPLETED
+        )
     }
 }
 

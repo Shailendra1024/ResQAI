@@ -1,14 +1,13 @@
 package com.example.resqai.screens.sos
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +20,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Sos
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -34,10 +36,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.resqai.components.CustomDialog
+import com.example.resqai.components.EmergencyButton
 import com.example.resqai.components.LoadingAnimation
 import com.example.resqai.components.PrimaryButton
 import com.example.resqai.components.ResQTopAppBar
@@ -45,10 +49,20 @@ import com.example.resqai.model.EmergencyContact
 import com.example.resqai.ui.theme.ResQAITheme
 import com.example.resqai.viewmodel.SOSViewModel
 import com.example.resqai.viewmodel.SosUiState
-import com.example.resqai.components.EmergencyButton
+
+/** Opens the phone dialer with [number] filled in. No CALL_PHONE permission needed. */
+internal fun dialNumber(context: Context, number: String) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number")))
+    } catch (e: Exception) {
+        // No dialer app available (some emulators) — nothing else to do.
+    }
+}
+
 /**
- * SOS screen — large emergency button that, when confirmed, simulates
- * sending an emergency request with a progress animation and success state.
+ * SOS screen. The SOS button records a request on the ResQAI server, but it does NOT
+ * contact any real emergency service — the screen says so clearly and offers a
+ * one-tap call to 112.
  */
 @Composable
 fun SosScreen(
@@ -57,6 +71,7 @@ fun SosScreen(
     onViewRescueStatus: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -75,6 +90,8 @@ fun SosScreen(
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            EmergencyNoticeCard(onCall112 = { dialNumber(context, "112") })
+
             AnimatedContent(targetState = state, label = "sosStateAnim") { sosState ->
                 when (sosState) {
                     is SosUiState.Idle, is SosUiState.ConfirmDialogVisible -> {
@@ -92,10 +109,9 @@ fun SosScreen(
                     }
                     is SosUiState.Sent -> {
                         SosSuccessContent(
-                            responderName = sosState.request.responderName,
-                            responderEta = sosState.request.responderEta,
                             onViewStatus = onViewRescueStatus,
-                            onSendAnother = viewModel::reset
+                            onSendAnother = viewModel::reset,
+                            onCall112 = { dialNumber(context, "112") }
                         )
                     }
                     is SosUiState.Error -> {
@@ -109,27 +125,94 @@ fun SosScreen(
             }
 
             Text(
-                text = "Emergency Contacts",
+                text = "Emergency Contacts (tap to call)",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 32.dp, bottom = 12.dp)
             )
+            EmergencyContactCard(
+                contact = EmergencyContact(
+                    id = "c0",
+                    name = "National Emergency Number",
+                    phoneNumber = "112"
+                ),
+                onCall = { dialNumber(context, "112") }
+            )
             viewModel.emergencyContacts.forEach { contact ->
-                EmergencyContactCard(contact)
+                EmergencyContactCard(
+                    contact = contact,
+                    onCall = { dialNumber(context, contact.phoneNumber) }
+                )
             }
         }
 
         if (state is SosUiState.ConfirmDialogVisible) {
             CustomDialog(
-                title = "Send SOS Alert?",
-                message = "This will immediately notify emergency responders of your current location. Only use this in a genuine emergency.",
+                title = "Send SOS Request?",
+                message = "This saves an SOS request with your location on the ResQAI server. " +
+                        "It does NOT contact police, ambulance or any rescue service. " +
+                        "In a real emergency, call 112 first.",
                 confirmText = "Send SOS",
                 isDestructive = true,
                 onConfirm = viewModel::onConfirmSos,
                 onDismiss = viewModel::onDismissDialog
             )
+        }
+    }
+}
+
+/** Always-visible notice at the top: this app does not replace emergency services. */
+@Composable
+private fun EmergencyNoticeCard(onCall112: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "Not a replacement for emergency services",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+            Text(
+                text = "ResQAI is a demo app. SOS requests are not sent to police, " +
+                        "ambulance or fire services. In a real emergency, call 112 right away.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            Button(
+                onClick = onCall112,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Phone,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(text = "Call 112", modifier = Modifier.padding(start = 8.dp))
+            }
         }
     }
 }
@@ -141,7 +224,7 @@ private fun SosIdleContent(onSosPressed: () -> Unit) {
         modifier = Modifier.padding(vertical = 40.dp)
     ) {
         Text(
-            text = "Press the button below in case of emergency",
+            text = "Press the button below to record an SOS request",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 32.dp)
@@ -175,10 +258,9 @@ private fun SosIdleContent(onSosPressed: () -> Unit) {
 
 @Composable
 private fun SosSuccessContent(
-    responderName: String,
-    responderEta: String,
     onViewStatus: () -> Unit,
-    onSendAnother: () -> Unit
+    onSendAnother: () -> Unit,
+    onCall112: () -> Unit
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -193,21 +275,37 @@ private fun SosSuccessContent(
             modifier = Modifier.size(72.dp)
         )
         Text(
-            text = "SOS Request Sent!",
+            text = "SOS Request Recorded",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 16.dp)
         )
         Text(
-            text = "$responderName has been notified. Estimated arrival: $responderEta",
+            text = "Your request was saved on the ResQAI server. No emergency service " +
+                    "has been contacted. If you need help, call 112 now.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp, start = 16.dp, end = 16.dp)
         )
+        Button(
+            onClick = onCall112,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
+            ),
+            modifier = Modifier.padding(top = 20.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Phone,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(text = "Call 112", modifier = Modifier.padding(start = 8.dp))
+        }
         PrimaryButton(
-            text = "View Rescue Status",
+            text = "View Request Status (Demo)",
             onClick = onViewStatus,
-            modifier = Modifier.padding(top = 24.dp)
+            modifier = Modifier.padding(top = 12.dp)
         )
         androidx.compose.material3.TextButton(onClick = onSendAnother) {
             Text("Send Another SOS")
@@ -216,11 +314,12 @@ private fun SosSuccessContent(
 }
 
 @Composable
-private fun EmergencyContactCard(contact: EmergencyContact) {
+private fun EmergencyContactCard(contact: EmergencyContact, onCall: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = 6.dp)
+            .clickable { onCall() },
         shape = MaterialTheme.shapes.medium,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {

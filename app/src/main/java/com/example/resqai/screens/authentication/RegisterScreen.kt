@@ -3,6 +3,7 @@ package com.example.resqai.screens.authentication
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,19 +28,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.resqai.components.PrimaryButton
 import com.example.resqai.components.ResQPasswordField
 import com.example.resqai.components.ResQTextField
 import com.example.resqai.ui.theme.ResQAITheme
+import com.example.resqai.viewmodel.AuthViewModel
 
 /**
- * Register screen — UI only. Basic client-side validation shows dummy error
- * states (e.g. password mismatch); no data is persisted anywhere.
+ * Register screen — calls the real backend (POST /api/v1/auth/register, then login)
+ * through [AuthViewModel]. Phone and location are collected in the form but the
+ * backend does not store them yet.
  */
 @Composable
 fun RegisterScreen(
     onRegisterSuccess: () -> Unit,
-    onNavigateToLogin: () -> Unit
+    onNavigateToLogin: () -> Unit,
+    viewModel: AuthViewModel = viewModel()
 ) {
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -47,7 +53,11 @@ fun RegisterScreen(
     var confirmPassword by remember { mutableStateOf("") }
     var location by remember { mutableStateOf("") }
 
+    val isLoading by viewModel.isLoading.collectAsState()
+    val error by viewModel.error.collectAsState()
+
     val passwordsMismatch = confirmPassword.isNotEmpty() && password != confirmPassword
+    val passwordTooShort = password.isNotEmpty() && password.length < 8
 
     Column(
         modifier = Modifier
@@ -70,7 +80,10 @@ fun RegisterScreen(
 
         ResQTextField(
             value = name,
-            onValueChange = { name = it },
+            onValueChange = {
+                name = it
+                viewModel.clearError()
+            },
             label = "Full Name",
             leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) }
         )
@@ -79,7 +92,10 @@ fun RegisterScreen(
 
         ResQTextField(
             value = email,
-            onValueChange = { email = it },
+            onValueChange = {
+                email = it
+                viewModel.clearError()
+            },
             label = "Email",
             keyboardType = KeyboardType.Email,
             leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) }
@@ -108,8 +124,13 @@ fun RegisterScreen(
 
         ResQPasswordField(
             value = password,
-            onValueChange = { password = it },
-            label = "Password"
+            onValueChange = {
+                password = it
+                viewModel.clearError()
+            },
+            label = "Password",
+            isError = passwordTooShort,
+            errorMessage = "Password must be at least 8 characters"
         )
 
         FieldSpacer()
@@ -122,11 +143,27 @@ fun RegisterScreen(
             errorMessage = "Passwords do not match"
         )
 
+        // Error from the backend (email already used, server unreachable, etc.)
+        error?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+            )
+        }
+
         PrimaryButton(
             text = "Create Account",
-            enabled = name.isNotBlank() && email.isNotBlank() && !passwordsMismatch &&
-                    password.isNotBlank() && confirmPassword.isNotBlank(),
-            onClick = onRegisterSuccess,
+            loading = isLoading,
+            enabled = name.trim().length >= 2 &&
+                    email.isNotBlank() &&
+                    password.length >= 8 &&
+                    password == confirmPassword &&
+                    !isLoading,
+            onClick = { viewModel.register(name, email, password, onRegisterSuccess) },
             modifier = Modifier.padding(top = 28.dp)
         )
 

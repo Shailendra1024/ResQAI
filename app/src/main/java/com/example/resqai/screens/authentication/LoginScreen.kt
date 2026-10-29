@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,27 +27,33 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.resqai.components.PrimaryButton
 import com.example.resqai.components.ResQPasswordField
 import com.example.resqai.components.ResQTextField
 import com.example.resqai.components.SecondaryButton
 import com.example.resqai.ui.theme.ResQAITheme
+import com.example.resqai.viewmodel.AuthViewModel
 
 /**
- * Login screen — UI only, uses dummy validation.
- * No real authentication/backend call; [onLoginSuccess] is invoked directly.
+ * Login screen — calls the real backend (POST /api/v1/auth/login) through [AuthViewModel].
+ * [onLoginSuccess] is invoked only after the backend accepts the credentials.
  */
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit,
-    onNavigateToRegister: () -> Unit
+    onNavigateToRegister: () -> Unit,
+    viewModel: AuthViewModel = viewModel()
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var rememberMe by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(false) }
+
+    val isLoading by viewModel.isLoading.collectAsState()
+    val error by viewModel.error.collectAsState()
 
     Column(
         modifier = Modifier
@@ -79,15 +86,22 @@ fun LoginScreen(
 
         ResQTextField(
             value = email,
-            onValueChange = { email = it },
+            onValueChange = {
+                email = it
+                viewModel.clearError()
+            },
             label = "Email",
+            keyboardType = KeyboardType.Email,
             leadingIcon = { Icon(Icons.Filled.Email, contentDescription = null) }
         )
 
         Column(modifier = Modifier.padding(top = 16.dp)) {
             ResQPasswordField(
                 value = password,
-                onValueChange = { password = it },
+                onValueChange = {
+                    password = it
+                    viewModel.clearError()
+                },
                 label = "Password"
             )
         }
@@ -103,20 +117,28 @@ fun LoginScreen(
                 Checkbox(checked = rememberMe, onCheckedChange = { rememberMe = it })
                 Text(text = "Remember Me", style = MaterialTheme.typography.bodySmall)
             }
-            TextButton(onClick = { /* Dummy — no backend */ }) {
+            TextButton(onClick = { /* Not implemented yet */ }) {
                 Text("Forgot Password?", style = MaterialTheme.typography.bodySmall)
             }
+        }
+
+        // Error from the backend (wrong password, server unreachable, etc.)
+        error?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+            )
         }
 
         PrimaryButton(
             text = "Login",
             loading = isLoading,
-            onClick = {
-                // Simulate a login call with dummy data — no real backend
-                isLoading = true
-                isLoading = false
-                onLoginSuccess()
-            },
+            enabled = email.isNotBlank() && password.length >= 8 && !isLoading,
+            onClick = { viewModel.login(email, password, onLoginSuccess) },
             modifier = Modifier.padding(top = 24.dp)
         )
 
