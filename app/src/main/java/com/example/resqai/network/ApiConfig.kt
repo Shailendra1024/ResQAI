@@ -8,7 +8,7 @@ object ApiConfig {
 
     // DEV ONLY: the app has no login screen yet, so it silently logs in as a demo user
     // (registering it first if needed). Set to false once a real login screen exists.
-    const val DEV_AUTO_LOGIN = true
+    const val DEV_AUTO_LOGIN = false
     const val DEV_NAME = "Demo User"
     const val DEV_EMAIL = "demo@resqai.dev"
     const val DEV_PASSWORD = "demo-pass-123"
